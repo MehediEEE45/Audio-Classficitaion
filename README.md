@@ -1,5 +1,4 @@
 # Audio-Classficitaion
-# Audio Classification Project
 
 ## Overview
 
