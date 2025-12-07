@@ -1,27 +1,24 @@
 #include "record.h"
+#include <display.h>
 
+#define BUF_SIZE AUDIO_IN_PCM_BUFFER_SIZE    //half word = 4*2304 =9216
 
-#define BUF_SIZE AUDIO_IN_PCM_BUFFER_SIZE
-
-uint16_t buffer[BUF_SIZE];
+uint16_t buffer[BUF_SIZE];             //buffer[9216]
 uint16_t buffer_size = BUF_SIZE;
 
-uint8_t pHeaderBuff[44];
+uint8_t pHeaderBuff[44];                //standard PCM WAV header length is 44 bytes
 
 static AUDIO_IN_BufferTypeDef  BufferCtl;
 static __IO uint32_t uwVolume = 100;
 WAVE_FormatTypeDef WaveFormat;
 
-/*******************************************************************************
-                            Static Functions
-*******************************************************************************/
+              /*
+              Initialize the wave header file
+              pHeader: Header Buffer to be filled
+              pWaveFormatStruct: Pointer to the wave structure to be filled.
+              0 if passed, !0 if failed.
+              */
 
-/**
-  * @brief  Initialize the wave header file
-  * @param  pHeader: Header Buffer to be filled
-  * @param  pWaveFormatStruct: Pointer to the wave structure to be filled.
-  * @retval 0 if passed, !0 if failed.
-  */
 static uint32_t WavProcess_HeaderInit(uint8_t* pHeader, WAVE_FormatTypeDef* pWaveFormatStruct)
 {
   /* Write chunkID, must be 'RIFF'  ------------------------------------------*/
@@ -101,19 +98,20 @@ static uint32_t WavProcess_HeaderInit(uint8_t* pHeader, WAVE_FormatTypeDef* pWav
   return 0;
 }
 
-/**
-  * @brief  Encoder initialization.
-  * @param  Freq: Sampling frequency.
-  * @param  pHeader: Pointer to the WAV file header to be written.
-  * @retval 0 if success, !0 else.
+/*
+            Encoder initialization.
+            Freq: Sampling frequency.
+            pHeader: Pointer to the WAV file header to be written.
+            0 if success, !0 else.
   */
+
 static uint32_t WavProcess_EncInit(uint32_t Freq, uint8_t *pHeader)
 {
   /* Initialize the encoder structure */
   WaveFormat.SampleRate = Freq;        /* Audio sampling frequency */
   WaveFormat.NbrChannels = 1;          /* Number of channels: 1:Mono or 2:Stereo */
   WaveFormat.BitPerSample = 16;        /* Number of bits per sample (16, 24 or 32) */
-  WaveFormat.FileSize = 0x001D4C00;    /* Total length of useful audio data (payload) */
+  WaveFormat.FileSize = 0x001D4C00;    /* Total length of useful audio data (payload)  0x001D4C00= 1920000 bytes */
   WaveFormat.SubChunk1Size = 44;       /* The file header chunk size */
   WaveFormat.ByteRate = (WaveFormat.SampleRate * \
                         (WaveFormat.BitPerSample/8) * \
@@ -131,12 +129,13 @@ static uint32_t WavProcess_EncInit(uint32_t Freq, uint8_t *pHeader)
 
 
 
-/**
-  * @brief  Initialize the wave header file
-  * @param  pHeader: Header Buffer to be filled
-  * @param  pWaveFormatStruct: Pointer to the wave structure to be filled.
-  * @retval 0 if passed, !0 if failed.
-  */
+/*
+            Initialize the wave header file
+            pHeader: Header Buffer to be filled
+            pWaveFormatStruct: Pointer to the wave structure to be filled.
+            0 if passed, !0 if failed.
+*/
+
 static uint32_t WavProcess_HeaderUpdate(uint8_t* pHeader, WAVE_FormatTypeDef* pWaveFormatStruct)
 {
   /* Write the file length ---------------------------------------------------*/
@@ -158,6 +157,10 @@ static uint32_t WavProcess_HeaderUpdate(uint8_t* pHeader, WAVE_FormatTypeDef* pW
   return 0;
 }
 
+
+
+
+
 AUDIO_ErrorTypeDef recordStart()
 {
 	FRESULT res; /* FatFs function common result code */
@@ -168,16 +171,19 @@ AUDIO_ErrorTypeDef recordStart()
 	res = f_open(&SDFile, REC_WAVE_NAME, FA_CREATE_ALWAYS | FA_WRITE);
 	if( res != FR_OK)
 	{
-		serialPrintln(&vcp,"cannot open file, code error : %d",res);
+
+	    char errbuf[32];
+
+	    serialPrintln(&vcp, "cannot open file, code error : %d", res);
+	    sprintf(errbuf, "ERR: %d", res);       // Convert integer 'res' to a printable string
+	    text(0, 120, 'c', errbuf, 'r', 'k');  // red text, black background
 	}
 	else
 	{
 		serialPrintln(&vcp,"open file");
-		/* Initialize header file */
-		WavProcess_EncInit(DEFAULT_AUDIO_IN_FREQ, pHeaderBuff);
+		WavProcess_EncInit(DEFAULT_AUDIO_IN_FREQ, pHeaderBuff);                  // Initialize header file  freq=16khz , pheaderbuff = 44
 
-		/* Write header file */
-		if(f_write(&SDFile, pHeaderBuff, 44, (void*)&byteswritten) == FR_OK)
+		if(f_write(&SDFile, pHeaderBuff, 44, (void*)&byteswritten) == FR_OK)            //Write header file
 		{
 			if(byteswritten != 0)
 			{
@@ -197,19 +203,20 @@ AUDIO_ErrorTypeDef recordStart()
 	return (AUDIO_ERROR_NONE);
 }
 
+
+
+
 AUDIO_ErrorTypeDef recordProcess()
 {
 	uint32_t elapsed_time;
 	static uint32_t prev_elapsed_time = 0xFFFFFFFF;
 
-	FRESULT res; /* FatFs function common result code */
+	FRESULT res;                                       // FatFs function common result code
 	uint32_t byteswritten = 0;
 
-
-	/* MAX Recording time reached, so stop audio interface and close file */
-	if(BufferCtl.fptr >= REC_SAMPLE_LENGTH)
+	if(BufferCtl.fptr >= REC_SAMPLE_LENGTH)            // MAX Recording time reached, so stop audio interface and close file
 	{
-	  return (AUDIO_ERROR_EOF);
+	  return (AUDIO_ERROR_EOF);                        //signaling end of recording
 	}
 
 	if (BufferCtl.wr_state == BUFFER_FULL)
@@ -218,9 +225,7 @@ AUDIO_ErrorTypeDef recordProcess()
 		{
 			buffer[i] =  BufferCtl.pcm_buff[BufferCtl.offset + i*4];
 		}
-
-		/* write buffer in file */
-		res = f_write(&SDFile, (uint16_t*)(buffer),AUDIO_IN_PCM_BUFFER_SIZE/2,(void*)&byteswritten);
+		res = f_write(&SDFile, (uint16_t*)(buffer),AUDIO_IN_PCM_BUFFER_SIZE/2,(void*)&byteswritten);        // write buffer in file
 		if(res != FR_OK)
 		{
 			serialPrintln(&vcp, "cannot store data, code error : %d",res);
@@ -229,8 +234,7 @@ AUDIO_ErrorTypeDef recordProcess()
 		BufferCtl.wr_state = BUFFER_EMPTY;
 	}
 
-	/* Display elapsed time */
-	elapsed_time = BufferCtl.fptr / (DEFAULT_AUDIO_IN_FREQ * DEFAULT_AUDIO_IN_CHANNEL_NBR * 2);
+	elapsed_time = BufferCtl.fptr / (DEFAULT_AUDIO_IN_FREQ * DEFAULT_AUDIO_IN_CHANNEL_NBR * 2);                // Display elapsed time
 	if(prev_elapsed_time != elapsed_time)
 	{
 	  prev_elapsed_time = elapsed_time;
@@ -239,25 +243,26 @@ AUDIO_ErrorTypeDef recordProcess()
 	return (AUDIO_ERROR_NONE);
 }
 
+
+
 AUDIO_ErrorTypeDef recordStop()
 {
-	FRESULT res; /* FatFs function common result code */
+	FRESULT res;                                             // FatFs function common result code
 	uint32_t byteswritten = 0;
 
-    /* Stop recorder */
-    BSP_AUDIO_IN_Stop(CODEC_PDWN_SW);
+
+    BSP_AUDIO_IN_Stop(CODEC_PDWN_SW);                        // Stop recorder
     HAL_Delay(150);
 
-    /* Move file pointer of the file object */
-    res = f_lseek(&SDFile, 0);
+
+    res = f_lseek(&SDFile, 0);                                // Move file pointer of the file object
     if(res != FR_OK)
     {
     	serialPrintln(&vcp, "f_lseek error, code error : %d",res);
     }
     else
     {
-		/* Update the wav file header save it into wav file */
-		WavProcess_HeaderUpdate(pHeaderBuff, &WaveFormat);
+		WavProcess_HeaderUpdate(pHeaderBuff, &WaveFormat);                      //Update the wav file header save it into wav file
 
 		res = f_write(&SDFile, pHeaderBuff, sizeof(WAVE_FormatTypeDef), (void*)&byteswritten);
 		if(res != FR_OK)
@@ -269,8 +274,7 @@ AUDIO_ErrorTypeDef recordStop()
 			serialPrintln(&vcp, "end of file",res);
 		}
     }
-    /* Close file */
-    f_close(&SDFile);
+    f_close(&SDFile);                                                       // Close file
 
     HAL_GPIO_WritePin(GPIOI, GPIO_PIN_1, RESET);
 
@@ -279,12 +283,14 @@ AUDIO_ErrorTypeDef recordStop()
     return (AUDIO_ERROR_NONE);
 }
 
+
 void BSP_AUDIO_IN_HalfTransfer_CallBack(void)
 {
 	BufferCtl.wr_state = BUFFER_FULL;
 	BufferCtl.offset = 0;
 
 }
+
 
 void BSP_AUDIO_IN_TransferComplete_CallBack(void)
 {
